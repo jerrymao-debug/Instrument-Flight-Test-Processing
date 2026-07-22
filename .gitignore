@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+config.local.json
+logs/
+
+# Local processing inputs and generated outputs.
+Processing data/
+dashboard_cache/
+dashboard_site/
+
+# nCode workflow binaries are stored in Google Drive.
+ncode_workflows/*.flo
+
+# Generated metadata caches.
+code/mission_aircraft_map.csv
+code/sensor_mission_metadata.json
+
+# Local archives and bulky result files.
+*.zip
+*.s3t
+*.xmh

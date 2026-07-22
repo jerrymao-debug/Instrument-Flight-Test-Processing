@@ -1,0 +1,8 @@
+{
+  "base_dir": "C:\\Instrument-Flight-Test-Processing",
+  "ascii_translate_exe": "C:\\Program Files\\nCode\\nCode 2025.1 64-bit\\GlyphWorks\\bin\\asciitranslate.exe",
+  "flowproc_exe": "C:\\Program Files\\nCode\\nCode 2025.1 64-bit\\GlyphWorks\\bin\\flowproc.exe",
+  "destination_s3_uri": "s3://vibration-data-daq/Instrumented fly test dashboard/",
+  "preferred_aws_profile": "ncode-sso",
+  "google_drive_ncode_folder_url": "https://drive.google.com/drive/folders/1A9eKlr5zPrf4V_mc2MZ-89cImgY7aOpi"
+}
