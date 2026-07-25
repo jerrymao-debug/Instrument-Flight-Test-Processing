@@ -4,19 +4,25 @@ import argparse
 import re
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from pipeline_config import FDS_SRS_FLOW, FLOWPROC_EXE, PHASE_SPLIT_DIR, PSD_OUTPUT_DIR, TS_INPUT_GLYPH
 
 
-OUTPUTS = [
+STANDARD_OUTPUTS = [
     ("HistogramOutput1 (Copy 1)", "_FDS", ".xmh", "nCodeXmlHistogram"),
     ("HistogramOutput1 (Copy 2)", "_ERS", ".xmh", "nCodeXmlHistogram"),
     ("HistogramOutput1 (Copy 3)", "_PSD", ".xmh", "nCodeXmlHistogram"),
     ("HistogramOutput1 (Copy 4)", "_PSD_Strain", ".xmh", "nCodeXmlHistogram"),
     ("HistogramOutput1 (Copy 5)", "_SRS", ".xmh", "nCodeXmlHistogram"),
-    ("HistogramOutput1 (Copy 6)", "_SRS_Strain", ".xmh", "nCodeXmlHistogram"),
 ]
+TEMP_STRAIN_SRS_OUTPUTS = [
+    ("HistogramOutput1 (Copy 6)", "_SRS_strain_body", ".xmh", "nCodeXmlHistogram", "mV"),
+    ("HistogramOutput1 (Copy 7)", "_SRS_strain_shaft", ".xmh", "nCodeXmlHistogram", "microstrain"),
+]
+OUTPUTS = STANDARD_OUTPUTS + [("python_merge", "_SRS_Strain", ".xmh", "")]
+FLOWPROC_OUTPUTS = STANDARD_OUTPUTS + [spec[:4] for spec in TEMP_STRAIN_SRS_OUTPUTS]
 
 WORK_DIR = PSD_OUTPUT_DIR / "_flowproc_work"
 PROCESSED_DIR = PSD_OUTPUT_DIR / "_processed"
@@ -85,6 +91,31 @@ def output_dir_for(input_file: Path) -> Path:
     return output_dir
 
 
+def work_dir_for(input_file: Path) -> Path:
+    phase = flight_phase_from_name(input_file.stem)
+    work_dir = WORK_DIR / phase
+    work_dir.mkdir(parents=True, exist_ok=True)
+    return work_dir
+
+
+def staged_dir_for(input_file: Path) -> Path:
+    staged_dir = work_dir_for(input_file) / "_outputs" / output_prefix(input_file)
+    staged_dir.mkdir(parents=True, exist_ok=True)
+    return staged_dir
+
+
+def output_file_for(input_file: Path, suffix: str, extension: str) -> Path:
+    return output_dir_for(input_file) / f"{output_prefix(input_file)}{suffix}{extension}"
+
+
+def staged_output_base_for(input_file: Path, suffix: str) -> Path:
+    return staged_dir_for(input_file) / f"{output_prefix(input_file)}{suffix}"
+
+
+def staged_output_file_for(input_file: Path, suffix: str, extension: str) -> Path:
+    return Path(f"{staged_output_base_for(input_file, suffix)}{extension}")
+
+
 def channel_number(path: Path) -> int:
     match = re.search(r"_Channel_(\d+)$", path.stem)
     if match:
@@ -119,9 +150,23 @@ def output_prefix(input_file: Path) -> str:
 
 
 def expected_outputs_for(input_file: Path) -> list[Path]:
-    prefix = output_prefix(input_file)
-    output_dir = output_dir_for(input_file)
-    return [output_dir / f"{prefix}{suffix}{extension}" for _glyph, suffix, extension, _fmt in OUTPUTS]
+    return [output_file_for(input_file, suffix, extension) for _glyph, suffix, extension, _fmt in OUTPUTS]
+
+
+def temp_strain_srs_outputs_for(input_file: Path, staged: bool = False) -> list[tuple[Path, str]]:
+    return [
+        (
+            staged_output_file_for(input_file, suffix, extension)
+            if staged
+            else output_file_for(input_file, suffix, extension),
+            units,
+        )
+        for _glyph, suffix, extension, _fmt, units in TEMP_STRAIN_SRS_OUTPUTS
+    ]
+
+
+def final_strain_srs_output_for(input_file: Path) -> Path:
+    return output_file_for(input_file, "_SRS_Strain", ".xmh")
 
 
 def source_csv_for(input_file: Path) -> Path:
@@ -241,17 +286,24 @@ def quote_for_flowproc(value: Path | str) -> str:
     return str(value).replace('"', '""')
 
 
+def clean_staged_outputs(input_file: Path) -> int:
+    staged_dir = staged_dir_for(input_file)
+    removed = 0
+    for path in staged_dir.glob(f"{output_prefix(input_file)}*.xmh"):
+        path.unlink()
+        removed += 1
+    return removed
+
+
 def make_flow_script(input_file: Path) -> Path:
     stem = output_prefix(input_file)
-    phase = flight_phase_from_name(input_file.stem)
-    work_dir = WORK_DIR / phase
-    work_dir.mkdir(parents=True, exist_ok=True)
-    output_dir = output_dir_for(input_file)
+    work_dir = work_dir_for(input_file)
+    clean_staged_outputs(input_file)
     script_path = work_dir / f"{stem}.script"
     lines: list[str] = []
 
-    for glyph, suffix, _extension, file_format in OUTPUTS:
-        output_name = output_dir / f"{stem}{suffix}"
+    for glyph, suffix, _extension, file_format in FLOWPROC_OUTPUTS:
+        output_name = staged_output_base_for(input_file, suffix)
         lines.append(f'SetProperty("{glyph}","NamingMethod","NewName")')
         lines.append(f'SetProperty("{glyph}","NameText","{quote_for_flowproc(output_name)}")')
         if file_format:
@@ -309,6 +361,112 @@ def is_license_error(log_text: str) -> bool:
     return any(pattern.lower() in log_text.lower() for pattern in license_patterns)
 
 
+def set_item_value(root: ET.Element, set_name: str, item_name: str, value: str) -> None:
+    for item in root.findall(f".//Set[@name='{set_name}']/Item[@name='{item_name}']"):
+        item.set("value", value)
+
+
+def update_xmh_metadata(root: ET.Element, output_path: Path, z_units: str | None = None) -> None:
+    output_path = output_path.resolve()
+    channels = root.findall(".//HistogramChannel")
+    channel_count = str(len(channels))
+    set_item_value(root, "Attributes", "NumChans", channel_count)
+    set_item_value(root, "InputTestInfo", "OriginalNumChans", channel_count)
+    set_item_value(root, "InputTestInfo", "Path", str(output_path.parent))
+    set_item_value(root, "InputTestInfo", "TestName", output_path.stem)
+    set_item_value(root, "InputTestInfo", "FilenameNoPath", output_path.name)
+    set_item_value(root, "InputTestInfo", "FilenameWithPath", str(output_path))
+
+    if not z_units:
+        return
+    for properties in root.findall(".//HistogramChannel/Properties"):
+        found_units = False
+        found_title = False
+        for prop in properties.findall("Property"):
+            name = prop.get("name")
+            if name == "ZUnits":
+                prop.set("value", z_units)
+                found_units = True
+            elif name == "ZTitle":
+                prop.set("value", "SRS")
+                found_title = True
+        if not found_units:
+            ET.SubElement(properties, "Property", {"name": "ZUnits", "value": z_units})
+        if not found_title:
+            ET.SubElement(properties, "Property", {"name": "ZTitle", "value": "SRS"})
+
+
+def move_staged_standard_outputs(input_file: Path) -> list[str]:
+    warnings: list[str] = []
+    for _glyph, suffix, extension, _fmt in STANDARD_OUTPUTS:
+        staged = staged_output_file_for(input_file, suffix, extension)
+        final = output_file_for(input_file, suffix, extension)
+        if not staged.exists():
+            raise RuntimeError(f"Missing staged nCode output: {staged.name}")
+
+        final.parent.mkdir(parents=True, exist_ok=True)
+        if final.exists():
+            try:
+                final.unlink()
+            except PermissionError:
+                warnings.append(f"Could not replace locked output, kept existing file: {final}")
+                try:
+                    staged.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
+        shutil.move(str(staged), str(final))
+    return warnings
+
+
+def merge_strain_srs_outputs(input_file: Path) -> Path:
+    temp_outputs = temp_strain_srs_outputs_for(input_file, staged=True)
+    available_outputs = [(path, units) for path, units in temp_outputs if path.exists()]
+    if not available_outputs:
+        expected_names = ", ".join(path.name for path, _units in temp_outputs)
+        raise RuntimeError(f"No temporary strain SRS output was found. Expected at least one of: {expected_names}")
+
+    final_output = final_strain_srs_output_for(input_file)
+    base_tree: ET.ElementTree | None = None
+    base_root: ET.Element | None = None
+    base_metadata: ET.Element | None = None
+
+    for path, units in available_outputs:
+        tree = ET.parse(path)
+        root = tree.getroot()
+        update_xmh_metadata(root, final_output, units)
+
+        if base_tree is None:
+            base_tree = tree
+            base_root = root
+            base_metadata = root.find("nCodeMetaData")
+            continue
+
+        if base_root is None:
+            raise RuntimeError("Could not merge temporary strain SRS outputs.")
+        if base_metadata is None:
+            base_metadata = base_root.find("nCodeMetaData")
+        source_metadata = root.find("nCodeMetaData")
+        if base_metadata is not None and source_metadata is not None:
+            for metadata_channel in source_metadata.findall("MetaDataChannel"):
+                base_metadata.append(metadata_channel)
+        for histogram_channel in root.findall("HistogramChannel"):
+            base_root.append(histogram_channel)
+
+    if base_tree is None or base_root is None:
+        raise RuntimeError("No temporary strain SRS outputs were available to merge.")
+
+    update_xmh_metadata(base_root, final_output)
+    base_tree.write(final_output, encoding="utf-8", xml_declaration=False)
+
+    for path, _units in available_outputs:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+    return final_output
+
+
 def run_flowproc(input_file: Path) -> None:
     print(f"RUN  {input_file.name}")
     returncode, log_path, log_text = run_flowproc_once(input_file)
@@ -324,6 +482,8 @@ def run_flowproc(input_file: Path) -> None:
 
     csv_output = copy_csv_for(input_file)
     cleanup_phase_sidecars(input_file)
+    output_warnings = move_staged_standard_outputs(input_file)
+    merge_strain_srs_outputs(input_file)
     outputs = existing_plot_outputs_for(input_file)
     expected_count = len(OUTPUTS)
     if len(outputs) != expected_count:
@@ -337,6 +497,8 @@ def run_flowproc(input_file: Path) -> None:
         f"input={input_file}\nxmh_outputs={len(outputs)}\ncsv_output={csv_output or ''}\ninput_glyph={TS_INPUT_GLYPH}\n",
         encoding="utf-8",
     )
+    for warning in output_warnings:
+        print(f"WARNING {warning}")
     print(f"SAVED {saved_count} output file(s) for {input_file.name}")
 
 
