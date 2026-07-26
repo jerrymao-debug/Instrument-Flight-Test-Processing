@@ -122,6 +122,8 @@ def choose_aws_profile(requested_profile: str | None) -> str | None:
     env_profile = os.environ.get("AWS_PROFILE")
     if requested_profile:
         return requested_profile
+    if os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY"):
+        return None
     if env_profile:
         return env_profile
 
