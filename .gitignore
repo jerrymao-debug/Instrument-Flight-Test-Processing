@@ -12,8 +12,7 @@ Processing data/
 dashboard_cache/
 dashboard_site/
 
-# nCode workflow binaries are stored in Google Drive.
-ncode_workflows/*.flo
+# nCode workflow binaries are small enough to keep in Git for repeatable setup.
 
 # Generated metadata caches.
 code/mission_aircraft_map.csv

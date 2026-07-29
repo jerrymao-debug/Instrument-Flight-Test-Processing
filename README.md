@@ -12,7 +12,7 @@ It takes raw CSV files, converts them to nCode time-series files, splits them by
 - `code/refresh_sensor_mission_metadata.py` refreshes dashboard sensor metadata from the Google Sheet.
 - `setup_project.py` creates the local folder layout and can download the nCode workflow files.
 
-The large/generated data folders are ignored by Git. The nCode `.flo` workflow files are stored in Google Drive instead of Git:
+The large/generated data folders are ignored by Git. The nCode `.flo` workflow files are included in `ncode_workflows\` so a fresh clone can run the same pipeline. The Google Drive folder is still useful as a shared mirror:
 
 https://drive.google.com/drive/folders/1A9eKlr5zPrf4V_mc2MZ-89cImgY7aOpi
 
@@ -25,7 +25,7 @@ python -m pip install -r requirements.txt
 python setup_project.py --download-ncode
 ```
 
-If the Drive download fails because the folder needs login, download these two files manually from the Drive folder and place them in `ncode_workflows\`:
+The repo already includes these two workflow files. If you want to refresh them from Drive, download these two files manually from the Drive folder and replace the copies in `ncode_workflows\`:
 
 - `0_FlightPhaseSplit.flo`
 - `4_FDS_SRS.flo`
@@ -129,9 +129,10 @@ python code\refresh_sensor_mission_metadata.py
 If the `.flo` files are changed in nCode:
 
 1. Save the updated `.flo` files.
-2. Replace the copies in the Google Drive folder.
-3. On each processing machine, run `python setup_project.py --download-ncode` again or manually copy the new `.flo` files into `ncode_workflows\`.
-4. Run `python code\final_code.py --overwrite` when you want to regenerate existing outputs.
+2. Replace the copies in `ncode_workflows\` and commit them to GitHub.
+3. Replace the copies in the Google Drive folder if you are keeping the Drive mirror updated.
+4. On each processing machine, pull the latest GitHub changes, or run `python setup_project.py --download-ncode` if you are using the Drive mirror.
+5. Run `python code\final_code.py --overwrite` when you want to regenerate existing outputs.
 
 ## Notes
 
