@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import os
 import shutil
 import subprocess
@@ -43,6 +45,41 @@ def detect_csv_layout(csv_path: Path) -> dict[str, int]:
         "title_line": title_line or 2,
         "unit_line": unit_line or 4,
     }
+
+
+def normalize_units_for_ncode(csv_path: Path) -> bool:
+    """nCode treats uppercase G differently, so normalize only exact unit cells."""
+    raw_lines = csv_path.read_text(encoding="utf-8-sig", errors="replace").splitlines(keepends=True)
+    layout = detect_csv_layout(csv_path)
+    unit_index = layout["unit_line"] - 1
+    if unit_index < 0 or unit_index >= len(raw_lines):
+        return False
+
+    original_line = raw_lines[unit_index]
+    line_body = original_line.rstrip("\r\n")
+    newline = original_line[len(line_body) :]
+    try:
+        row = next(csv.reader([line_body]))
+    except csv.Error:
+        return False
+
+    changed = False
+    normalized_row: list[str] = []
+    for cell in row:
+        if cell.strip() == "G":
+            normalized_row.append("g")
+            changed = True
+        else:
+            normalized_row.append(cell)
+
+    if not changed:
+        return False
+
+    output = io.StringIO(newline="")
+    csv.writer(output, lineterminator="").writerow(normalized_row)
+    raw_lines[unit_index] = f"{output.getvalue()}{newline}"
+    csv_path.write_text("".join(raw_lines), encoding="utf-8")
+    return True
 
 
 def require_pywinauto():
@@ -204,6 +241,9 @@ def fill_time_series_details_page(window) -> None:
 
 
 def translate_one_csv(Application, csv_path: Path, overwrite: bool = False) -> Path:
+    if normalize_units_for_ncode(csv_path):
+        print(f"Normalized uppercase G unit metadata to g: {csv_path}", flush=True)
+
     expected_intermediate = csv_path.with_suffix(".s3t")
     if expected_intermediate.exists():
         expected_intermediate.unlink()
