@@ -9,7 +9,7 @@ echo.
 if not "%EXIT_CODE%"=="0" (
     echo Processing did not finish. Review the message above.
 ) else (
-    echo Processing and upload finished successfully.
+    echo The launcher finished successfully.
 )
 echo Press any key to close this window.
 pause >nul
