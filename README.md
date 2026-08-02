@@ -16,6 +16,38 @@ The large/generated data folders are ignored by Git. The nCode `.flo` workflow f
 
 https://drive.google.com/drive/folders/1A9eKlr5zPrf4V_mc2MZ-89cImgY7aOpi
 
+## One-Click Windows Start
+
+After downloading or cloning the repository, double-click this file in the repository root:
+
+```text
+START-PROCESSING.cmd
+```
+
+The launcher performs the complete local workflow:
+
+1. Checks for Python, AWS CLI, nCode, and both required `.flo` workflow files.
+2. Shows a Windows pop-up identifying any missing software or file.
+3. Creates the `Processing data` folder layout.
+4. Installs missing Python packages from `requirements.txt`.
+5. Checks for at least one input CSV in `Processing data\csv`.
+6. Runs the complete nCode processing pipeline.
+7. Opens AWS SSO sign-in when required and uploads the completed results to S3.
+
+The first-time requirements are Python 3, AWS CLI v2, and nCode 2025.1 64-bit. If nCode is missing, the launcher opens the company [ReliaSoft and nCode Installation and Setup](https://flyzipline.atlassian.net/wiki/spaces/REL/pages/1928953995/ReliaSoft+and+nCode+Installation+and+Setup) page. If nCode is installed in a different location, copy `config.example.json` to `config.local.json` and update the two executable paths.
+
+To validate the computer without processing data, run:
+
+```powershell
+.\START-PROCESSING.cmd -CheckOnly
+```
+
+To process without uploading to AWS, run:
+
+```powershell
+.\START-PROCESSING.cmd -SkipUpload
+```
+
 ## First-Time Setup
 
 Run these commands from the repo root:
